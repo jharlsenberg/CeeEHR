@@ -1,19 +1,28 @@
 #!/bin/bash
 
-echo "-----> Killing npm run dev processes..."
+echo "-----> Killing Node.js processes related to Cee app..."
 
-# Kill npm processes related to 'app'
-pkill -f "npm run dev.*packages/app"
+# Find and kill Node.js processes related to your app
+pids=$(pgrep -f "ts-node-dev --poll --respawn --transpile-only src/index.ts")
 
-# Give some delay to ensure npm processes are fully terminated
-sleep 3
+if [ -n "$pids" ]; then
+  for pid in $pids; do
+    echo "Killing process $pid..."
+    kill $pid
+  done
+else
+  echo "No Node.js processes related to Cee app found."
+fi
 
-# Kill npm processes related to 'server'
-pkill -f "npm run dev.*packages/server"
+# Find and kill the Vite server process
+vite_pid=$(pgrep -f "node /Users/josh/Projects/CEE/CeeEHR/node_modules/.bin/vite")
 
-
-# Give some delay to ensure npm processes are fully terminated
-sleep 1
+if [ -n "$vite_pid" ]; then
+  echo "Killing Vite server process $vite_pid..."
+  kill $vite_pid
+else
+  echo "No Vite server process found."
+fi
 
 echo "-----> Stopping docker-compose..."
 docker-compose down
