@@ -1,12 +1,13 @@
 import { MedplumClient } from '@medplum/core';
 import { BundleEntry, ExplanationOfBenefit, ExplanationOfBenefitItem, Resource } from '@medplum/fhirtypes';
 import { Command } from 'commander';
-import { createReadStream, writeFile } from 'fs';
+import { createReadStream, writeFile,promises as fsPromises } from 'fs';
 import { resolve } from 'path';
 import { createInterface } from 'readline';
 import { createMedplumClient } from './util/client';
 import { createMedplumCommand } from './util/command';
 import { getUnsupportedExtension, prettyPrint } from './utils';
+
 
 const bulkExportCommand = createMedplumCommand('export');
 const bulkImportCommand = createMedplumCommand('import');
@@ -44,8 +45,13 @@ bulkExportCommand
     });
   });
 
-bulkImportCommand
-  .argument('<filename>', 'File Name')
+  bulkImportCommand
+  .argument('[filenameOrDirectory]', 'Mandatory argument, either File Name or Directory containing NDJSON files')
+  .option(
+    '--is-directory',
+    'Flag to indicate if the argument is a directory containing NDJSON files',
+    false
+  )
   .option(
     '--num-resources-per-request <numResourcesPerRequest>',
     'optional number of resources to import per batch request. Defaults to 25.',
@@ -57,13 +63,43 @@ bulkImportCommand
     false
   )
   .option('-d, --target-directory <targetDirectory>', 'optional target directory of file to be imported')
-  .action(async (fileName, options) => {
-    const { numResourcesPerRequest, addExtensionsForMissingValues, targetDirectory } = options;
-    const path = resolve(targetDirectory ?? process.cwd(), fileName);
+  .action(async (fileNameOrDirectory, options) => {
+    const { numResourcesPerRequest, addExtensionsForMissingValues, targetDirectory, isDirectory } = options;
+    
+    // Determine the full path based on whether --is-directory is specified
+    let fullPath;
+    if (isDirectory) {
+      if (!targetDirectory) {
+        console.error('Error: --target-directory must be specified when using --is-directory.');
+        return;
+      }
+      fullPath = targetDirectory;
+    } else {
+      if (!fileNameOrDirectory) {
+        console.error('Error: filenameOrDirectory must be specified when not using --is-directory.');
+        return;
+      }
+      fullPath = resolve(targetDirectory ?? process.cwd(), fileNameOrDirectory);
+    }
     const medplum = await createMedplumClient(options);
 
-    await importFile(path, parseInt(numResourcesPerRequest, 10), medplum, addExtensionsForMissingValues);
-  });
+    if (isDirectory) {
+      if (!fullPath) {
+        console.error('Error: --target-directory must be specified when using --is-directory.');
+        return;
+      }
+      const files = await fsPromises.readdir(fullPath);
+      const ndjsonFiles = files.filter(file => file.endsWith('.ndjson'));
+      
+      for (const ndjsonFile of ndjsonFiles) {
+        const filePath = resolve(fullPath, ndjsonFile);
+        await importFile(filePath, parseInt(numResourcesPerRequest, 10), medplum, addExtensionsForMissingValues);
+      }
+    } else {
+      await importFile(fullPath, parseInt(numResourcesPerRequest, 10), medplum, addExtensionsForMissingValues);
+    }
+});
+
 
 async function importFile(
   path: string,
